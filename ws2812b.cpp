@@ -11,8 +11,8 @@
 #include <sys/mman.h>
 #include <iostream>
 
-struct control_data_s* ws2812b::m_ctl=0;
-uint8_t* ws2812b::virtbase = 0;
+struct control_data_s* ws2812b::m_ctlPtr=0;
+uint8_t* ws2812b::m_virtbasePtr = 0;
 volatile unsigned int* ws2812b::pwm_reg = 0;
 volatile unsigned int* ws2812b::clk_reg = 0;
 volatile unsigned int* ws2812b::dma_reg = 0;
@@ -63,51 +63,14 @@ bool ws2812b::SetPixelColour(uint32_t pixelNr, uint8_t r, uint8_t g, uint8_t b)
 
 void ws2812b::Show()
 {
-    std::cout << "Show" << std::endl;
+    setColourBits();
 
-    unsigned int colorBits = 0;
-    unsigned char colorBit = 0;
-    unsigned int wireBit = 0;
-
-    uint8_t sizeOfColorBits = sizeof(colorBits) * 8;
-    uint8_t sizeOfColorBit = sizeof(colorBit) * 8;
-    uint8_t colorBitAmount = sizeOfColorBit * 3; // Amount of colorbit in Colorbits. 8 bits for every color (R,G,B).
-
-    Color_t ledColor;
-
-    for (Color_t led : m_LEDBuffer)
-    {
-        ledColor.r = led.r * m_brightness;
-        ledColor.g = led.g * m_brightness;
-        ledColor.b = led.b * m_brightness;
-
-        colorBits = ((unsigned int)ledColor.r << 8 | ((unsigned int)ledColor.g << 16) | ledColor.b);
-
-        for (int bitIndex = (colorBitAmount - 1); bitIndex >= 0; bitIndex--)
-        {
-            colorBit = (colorBits & (1 << bitIndex)) ? 1 : 0;
-
-            if (colorBit)
-            {
-                setPWMBit(wireBit++, 1);
-                setPWMBit(wireBit++, 1);
-                setPWMBit(wireBit++, 0);
-            }
-            else
-            {
-                setPWMBit(wireBit++, 1);
-                setPWMBit(wireBit++, 0);
-                setPWMBit(wireBit++, 0);
-            }
-        }
-    }
-
-    m_ctl = (struct control_data_s *)virtbase;
-    dma_cb_t *cbp = m_ctl->cb;
+    m_ctlPtr = (struct control_data_s *)m_virtbasePtr;
+    dma_cb_t *cbp = m_ctlPtr->cb;
 
     for (int index = 0; index < (cbp->length / 4); index++)
     {
-        m_ctl->sample[index] = m_PWMWaveform[index];
+        m_ctlPtr->sample[index] = m_PWMWaveform[index];
     }
 
     startTransfer();
@@ -139,7 +102,7 @@ void ws2812b::initHardware()
     SET_GPIO_ALT(18, 5);
 
     // Allocate memory for the DMA control block & data to be sent
-    virtbase = (uint8_t*) mmap(
+    m_virtbasePtr = (uint8_t*) mmap(
         NULL,
         NUM_PAGES * PAGE_SIZE,
         PROT_READ | PROT_WRITE,
@@ -150,12 +113,12 @@ void ws2812b::initHardware()
         -1,
         0);
 
-    if (virtbase == MAP_FAILED)
+    if (m_virtbasePtr == MAP_FAILED)
     {
         fatal("Failed to mmap physical pages: %m\n");
     }
 
-    if ((unsigned long)virtbase & (PAGE_SIZE-1))
+    if ((unsigned long)m_virtbasePtr & (PAGE_SIZE-1))
     {
         fatal("Virtual address is not page aligned\n");
     }
@@ -177,7 +140,7 @@ void ws2812b::initHardware()
         fatal("Failed to open %s: %m\n", pagemap_fn);
     }
 
-    if (lseek(fd, (unsigned long)virtbase >> 9, SEEK_SET) != (unsigned long)virtbase >> 9)
+    if (lseek(fd, (unsigned long)m_virtbasePtr >> 9, SEEK_SET) != (unsigned long)m_virtbasePtr >> 9)
     {
         fatal("Failed to seek on %s: %m\n", pagemap_fn);
     }
@@ -185,7 +148,7 @@ void ws2812b::initHardware()
     for (int i = 0; i < NUM_PAGES; i++)
     {
         uint64_t pfn;
-        page_map[i].virtaddr = virtbase + i * PAGE_SIZE;
+        page_map[i].virtaddr = m_virtbasePtr + i * PAGE_SIZE;
 
         page_map[i].virtaddr[0] = 0;
 
@@ -209,7 +172,7 @@ void ws2812b::initHardware()
 
 void ws2812b::startTransfer()
 {
-    dma_reg[DMA_CONBLK_AD] = mem_virt_to_phys(m_ctl->cb);
+    dma_reg[DMA_CONBLK_AD] = mem_virt_to_phys(m_ctlPtr->cb);
     dma_reg[DMA_CS] = DMA_CS_CONFIGWORD | (1 << DMA_CS_ACTIVE);
     usleep(100);
 
@@ -244,10 +207,39 @@ void ws2812b::clearLEDBuffer(){
     }
 }
 
-//void ws2812b::clearLEDBuffer()
-//{
-//    m_LEDBuffer.clear();
-//}
+void ws2812b::setColourBits()
+{
+    unsigned int colorBits = 0;
+    unsigned char colorBit = 0;
+    unsigned int wireBit = 0;
+
+    uint8_t sizeOfColorBits = sizeof(colorBits) * 8;
+    uint8_t sizeOfColorBit = sizeof(colorBit) * 8;
+    uint8_t colorBitAmount = sizeOfColorBit * 3; // Amount of colorbit in Colorbits. 8 bits for every color (R,G,B).
+
+    for (Color_t led : m_LEDBuffer)
+    {
+        colorBits = (led.b | (unsigned int)led.r << 8 | ((unsigned int)led.g << 16));
+
+        for (int bitIndex = (colorBitAmount - 1); bitIndex >= 0; bitIndex--)
+        {
+            colorBit = (colorBits & (1 << bitIndex)) ? 1 : 0;
+
+            if (colorBit)
+            {
+                setPWMBit(wireBit++, 1);
+                setPWMBit(wireBit++, 1);
+                setPWMBit(wireBit++, 0);
+            }
+            else
+            {
+                setPWMBit(wireBit++, 1);
+                setPWMBit(wireBit++, 0);
+                setPWMBit(wireBit++, 0);
+            }
+        }
+    }
+}
 
 void ws2812b::setPWMBit(unsigned int bitPos, bool bit)
 {
@@ -321,7 +313,7 @@ void ws2812b::terminate(int /*dummy*/)
 
 unsigned int ws2812b::mem_virt_to_phys(void *virt)
 {
-    unsigned int offset = (uint8_t *)virt - virtbase;
+    unsigned int offset = (uint8_t *)virt - m_virtbasePtr;
 
     return page_map[offset >> PAGE_SHIFT].physaddr + (offset % PAGE_SIZE);
 }
@@ -337,12 +329,12 @@ void ws2812b::initPheripherals()
 
 void ws2812b::initControlBlock()
 {
-    m_ctl = (struct control_data_s *)virtbase;
-    dma_cb_t *cbp = m_ctl->cb;
+    m_ctlPtr = (struct control_data_s *)m_virtbasePtr;
+    dma_cb_t *cbp = m_ctlPtr->cb;
     unsigned int phys_pwm_fifo_addr = 0x7e20c000 + 0x18;
 
     cbp->info = DMA_TI_CONFIGWORD;
-    cbp->src = mem_virt_to_phys(m_ctl->sample);
+    cbp->src = mem_virt_to_phys(m_ctlPtr->sample);
     cbp->dst = phys_pwm_fifo_addr;
     cbp->length = ((m_numLEDs * 2.25) + 1) * 4;
 
@@ -419,26 +411,9 @@ void ws2812b::initPWM()
     SETBIT(dma_reg[DMA_CS], DMA_CS_END);
     usleep(100);
 
-    dma_reg[DMA_CONBLK_AD] = mem_virt_to_phys(m_ctl->cb);
+    dma_reg[DMA_CONBLK_AD] = mem_virt_to_phys(m_ctlPtr->cb);
     usleep(100);
 
     dma_reg[DMA_DEBUG] = 7;
     usleep(100);
-}
-
-void ws2812b::initLED(Color_t &led)
-{
-    led.r = 0;
-    led.g = 0;
-    led.b = 0;
-}
-
-void ws2812b::addLED()
-{
-//    std::cout << "Add LED" << std::endl;
-//    Color_t * led = new Color_t;
-
-//    initLED(led);
-
-//    m_LEDBuffer.push_back(led);
 }

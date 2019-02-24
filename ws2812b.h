@@ -26,7 +26,9 @@ public:
     uint32_t GetPixelAmount();
 
 private:
+
     void initHardware();
+
     void startTransfer();
 
     void clearPWMBuffer();
@@ -34,6 +36,8 @@ private:
     void initLEDBuffer();
     void clearLEDBuffer();
 
+    void setColourBits();
+    void setColourBit();
     void setPWMBit(unsigned int bitPos, bool bit);
 
     void* map_peripheral(uint32_t base, uint32_t len);
@@ -48,9 +52,6 @@ private:
     void initPWMClock(void);
     void initPWM(void);
 
-    void initLED(Color_t &led);
-    void addLED();
-
     uint16_t m_numLEDs;
     float m_brightness;
 
@@ -58,10 +59,10 @@ private:
 
     unsigned int m_PWMWaveform[NUM_DATA_WORDS];
 
-    static struct control_data_s *m_ctl;
+    static struct control_data_s *m_ctlPtr;
 
     page_map_t *page_map;
-    static uint8_t *virtbase;
+    static uint8_t *m_virtbasePtr;
 
     static volatile unsigned int *pwm_reg;
     static volatile unsigned int *clk_reg;

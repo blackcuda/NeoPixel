@@ -30,7 +30,7 @@ void ws2812bTest::colorWipe()
     {
         for (uint32_t index = 0; index < wsPixel->GetPixelAmount(); index++)
         {
-            wsPixel->SetPixelColour(index, i, i, i);
+            wsPixel->SetPixelColour(index, 0, i, 0);
             wsPixel->Show();
         }
         usleep(5000);
